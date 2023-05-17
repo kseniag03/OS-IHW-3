@@ -23,6 +23,20 @@ ________________________
 
 // что-то важное WANTED
 
+// about TCP
+
+![image](https://github.com/kseniag03/OS-IHW-3/assets/114473740/123836fe-91cb-425f-94e3-5c59fd4bb897)
+![image](https://github.com/kseniag03/OS-IHW-3/assets/114473740/ab3c2ef5-7c64-48da-934c-f0b494b2a642)
+![image](https://github.com/kseniag03/OS-IHW-3/assets/114473740/7c16514f-d344-465d-bee7-58d36f602f55)
+![image](https://github.com/kseniag03/OS-IHW-3/assets/114473740/79cfb252-25b7-4484-b481-b2595fb233cc)
+![image](https://github.com/kseniag03/OS-IHW-3/assets/114473740/59d53532-a8c3-4f7e-aae5-765cb4f0770a)
+![image](https://github.com/kseniag03/OS-IHW-3/assets/114473740/8a9e575d-5cee-42ae-a9a9-248d0c39418a)
+![image](https://github.com/kseniag03/OS-IHW-3/assets/114473740/7582dff5-33c0-46ca-9c48-6023fd1dac12)
+![image](https://github.com/kseniag03/OS-IHW-3/assets/114473740/3a8bae30-fa1c-4a28-97d0-194b8fc01fe5)
+![image](https://github.com/kseniag03/OS-IHW-3/assets/114473740/338ab9a8-d2e0-4a57-ae44-63ae037d1e64)
+![image](https://github.com/kseniag03/OS-IHW-3/assets/114473740/7b5eaf4a-bab9-47eb-b8e7-5b391ad11057)
+
+
 Разработанное приложение должно работать как на одном компьютере так и в распределенном (сетевом) режиме на нескольких компьютерах, по которым можно будет разнести серверы и клиентов. Проверка сетевого режима WANTED!!!!
 
 Тестовые прогоны (скриншоты) прикреплены в соот-х папках (ссылки будут ниже, в нужных разделах)
