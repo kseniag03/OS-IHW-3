@@ -44,32 +44,33 @@ int main(int argc, char *argv[])
         ports[2] = atoi(argv[6]);
     }
 
-    int sock;
-    sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    if (sock < 0)
-    {
-        perror("[-]\tSocket error");
-        exit(1);
-    }
-    printf("[+]\tTCP server socket has been created (client)\n");
-
-    struct sockaddr_in addr;
-    socklen_t addr_size;
-
-    memset(&addr, '\0', sizeof(addr));
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(ports[0]);
-    addr.sin_addr.s_addr = inet_addr(ips[0]);
-
-    if (connect(sock, (struct sockaddr *)&addr, sizeof(addr)) < 0)
-    {
-        perror("[-]\tConnect error");
-        exit(1);
-    }
-    printf("[+]\tConnected to the server\n");
-
     for (int i = 0; i < PROGRAMMERS_COUNT; ++i)
     {
+
+        int sock;
+        sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        if (sock < 0)
+        {
+            perror("[-]\tSocket error");
+            exit(1);
+        }
+        printf("[+]\tTCP server socket has been created (client)\n");
+
+        struct sockaddr_in addr;
+        socklen_t addr_size;
+
+        memset(&addr, '\0', sizeof(addr));
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons(ports[i]);
+        addr.sin_addr.s_addr = inet_addr(ips[i]);
+
+        if (connect(sock, (struct sockaddr *)&addr, sizeof(addr)) < 0)
+        {
+            perror("[-]\tConnect error");
+            exit(1);
+        }
+        printf("[+]\tConnected to the server\n");
+
         if (send(sock, &i, sizeof(i), 0) < 0)
         {
             perror("[-]\tSend error");
@@ -89,10 +90,10 @@ int main(int argc, char *argv[])
             sleep(5);
         }
         sleep(100);
-    }
 
-    close(sock);
-    printf("[+]\tDisconnected from the server.\n");
+        close(sock);
+        printf("[+]\tDisconnected from the server.\n");
+    }
 
     return 0;
 }
