@@ -55,7 +55,7 @@ void executeTask(struct task *task, const char *client_ip)
         task->executor_ip = strdup(client_ip);
         printf("Client with ip: %s has got task with id = %d for execution\n", client_ip, task->id);
     }
-    else if (strcmp(cur_task.executor_ip, client_ip) == 0)
+    else if (strcmp(task->executor_ip, client_ip) == 0)
     {
         // same ip, fixing
         printf("Client with ip: %s fixing task with id = %d\n", client_ip, task->id);
@@ -97,7 +97,7 @@ void completeTaskChecking(struct task *task, struct pulls_t *pulls, int *result,
 void getTaskResult(struct task *task, struct pulls_t *pulls, const char *client_ip)
 {
     int i = task->id;
-    if (pulls->complete[i] == NULL)
+    if (pulls->complete[i].id == -1)
     {
         printf("Client with ip: %s has not completed task with id = %d yet\n", client_ip, task->id);
     }
@@ -112,22 +112,24 @@ void handleClientRequest(unsigned short request, const char *client_ip, struct p
     int i = -1;
     int result = -1; // Initialize result to -1
 
+    struct task cur_task;
+
     switch (request)
     {
     case 0: // Get task for execution
-        struct task cur_task = NULL;
+        cur_task = (struct task){-1, NULL, NULL};
         for (i = 0; i < MAX_TASK_COUNT; ++i)
         {
             cur_task = pulls->execution[i];
             // под это условие попадают как программы, которые ещё не выполнялись,
             // так и программы, которые были выполнены с ошибками (т.к. в них не обновляется checker_ip)
-            if (cur_task != NULL && cur_task.checker_ip == NULL)
+            if (cur_task.id != -1 && cur_task.checker_ip == NULL)
             {
                 printf("[switch-if-0]__have_found_task_for_exe__\n");
                 break;
             }
         }
-        if (cur_task == NULL)
+        if (cur_task.id == -1)
         {
             printf("No task for execution found\n");
             return;
@@ -136,18 +138,18 @@ void handleClientRequest(unsigned short request, const char *client_ip, struct p
         break;
 
     case 1: // Return result of task execution
-        struct task cur_task = NULL;
+        cur_task = (struct task){-1, NULL, NULL};
         for (i = 0; i < MAX_TASK_COUNT; ++i)
         {
             cur_task = pulls->execution[i];
             // забираем первую задачу с совпадающим айпи клиента-программиста
-            if (cur_task != NULL && cur_task.executor_ip && strcmp(cur_task.executor_ip, client_ip) == 0)
+            if (cur_task.id != -1 && cur_task.executor_ip && strcmp(cur_task.executor_ip, client_ip) == 0)
             {
                 printf("[switch-if-1]__have_found_exe_task__\n");
                 break;
             }
         }
-        if (cur_task == NULL)
+        if (cur_task.id == -1)
         {
             printf("No task for finish execution found\n");
             return;
@@ -156,18 +158,18 @@ void handleClientRequest(unsigned short request, const char *client_ip, struct p
         break;
 
     case 2: // Get task for checking
-        struct task cur_task = NULL;
+        cur_task = (struct task){-1, NULL, NULL};
         for (i = 0; i < MAX_TASK_COUNT; ++i)
         {
             cur_task = pulls->execution[i];
             // можно назначать и задачи, у которых ещё не наметился исполнитель
-            if (cur_task != NULL && cur_task.checker_ip == NULL)
+            if (cur_task.id != -1 && cur_task.checker_ip == NULL)
             {
                 printf("[switch-if-2]__have_found_task_for_che__\n");
                 break;
             }
         }
-        if (cur_task == NULL)
+        if (cur_task.id == -1)
         {
             printf("No task for check found\n");
             return;
@@ -176,18 +178,18 @@ void handleClientRequest(unsigned short request, const char *client_ip, struct p
         break;
 
     case 3: // Return result of task checking
-        struct task cur_task = NULL;
+        cur_task = (struct task){-1, NULL, NULL};
         for (i = 0; i < MAX_TASK_COUNT; ++i)
         {
             cur_task = pulls->execution[i];
             // такая задача уже должна быть выполнена (чтобы быть проверенной)
-            if (cur_task != NULL && cur_task.executor_ip != NULL && cur_task.checker_ip != NULL && strcmp(cur_task.checker_ip, client_ip) == 0)
+            if (cur_task.id != -1 && cur_task.executor_ip != NULL && cur_task.checker_ip != NULL && strcmp(cur_task.checker_ip, client_ip) == 0)
             {
                 printf("[switch-if-3]__have_found_che_task__\n");
                 break;
             }
         }
-        if (cur_task == NULL)
+        if (cur_task.id == -1)
         {
             printf("No task for finish check found\n");
             return;
@@ -198,18 +200,18 @@ void handleClientRequest(unsigned short request, const char *client_ip, struct p
         break;
 
     case 4: // Get result of task execution check
-        struct task cur_task = NULL;
+        cur_task = (struct task){-1, NULL, NULL};
         for (i = 0; i < MAX_TASK_COUNT; ++i)
         {
             cur_task = pulls->execution[i];
             // такая задача уже должна быть выполнена и проверена хотя бы раз, получает результат исполнитель задачи
-            if (cur_task != NULL && cur_task.executor_ip != NULL && cur_task.checker_ip != NULL && strcmp(cur_task.executor_ip, client_ip) == 0)
+            if (cur_task.id != -1 && cur_task.executor_ip != NULL && cur_task.checker_ip != NULL && strcmp(cur_task.executor_ip, client_ip) == 0)
             {
                 printf("[switch-if-4]__have_found_task__\n");
                 break;
             }
         }
-        if (cur_task == NULL)
+        if (cur_task.id == -1)
         {
             printf("No task result found\n");
             return;
@@ -225,18 +227,15 @@ int main(int argc, char *argv[])
     char *ip = "127.0.0.1";
     unsigned short port = 5000;
 
+    // command line input:
+    // tasks_count
+
     if (argc > 1)
     {
         tasks_count = atoi(argv[1]); // check if argv[1] can be converted to int!!! // it is difficult.......
         // in order to have tasks_count lower (or equal) than max
         tasks_count = (tasks_count > MAX_TASK_COUNT) ? MAX_TASK_COUNT : tasks_count;
     }
-
-    // command line input:
-    // tasks_count
-    // programmer1_ip, programmer1_port
-    // programmer2_ip, programmer2_port
-    // programmer3_ip, programmer3_port
 
     int server_socket, client_socket;
     struct sockaddr_in server_addr;
@@ -249,6 +248,17 @@ int main(int argc, char *argv[])
     {
         struct task task = {.id = i};
         task_pulls.execution[i] = task;
+    }
+    for (int i = tasks_count; i < MAX_TASK_COUNT; ++i)
+    {
+        struct task task = {-1, NULL, NULL};
+        task_pulls.execution[i] = task;
+    }
+    for (int i = 0; i < MAX_TASK_COUNT; ++i)
+    {
+        struct task task = {-1, NULL, NULL};
+        task_pulls.check[i] = task;
+        task_pulls.complete[i] = task;
     }
 
     server_socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -280,7 +290,7 @@ int main(int argc, char *argv[])
 
         bzero(buffer, BUFFER_SIZE);
         recv(client_socket, &request, sizeof(request), 0);
-        printf("Received request %hu from client\n", request);
+        printf("Received request %d from client\n", request);
 
         handleClientRequest(request, inet_ntoa(server_addr.sin_addr), &task_pulls);
 
