@@ -7,11 +7,13 @@
 #define MAX_PROGRAMMERS_CONNECTIONS 3
 #define MAX_LOGGERS_CONNECTIONS 1 // 100? for several clients-retranslators support
 
-void HandleTCPClient(int clntSocket, int port);                      /* TCP client handling function */
+void HandleTCPProgrammerClient(int clntSocket, int port);            /* TCP client handling function */
+void HandleTCPLoggerClient(int clntSocket, int port);                /* TCP client handling function */
 int CreateTCPServerSocket(unsigned short port, int max_connections); /* Create TCP server socket */
 int AcceptTCPConnection(int servSock);                               /* Accept TCP connection request */
 
-void *ThreadMain(void *arg); /* Main program of a thread */
+void *ThreadMain(void *arg);  /* Main program of a thread */
+void *ThreadMain2(void *arg); /* Main program of a thread */
 
 void printTasksInfo(); /* Print status info for logging */
 
@@ -25,17 +27,15 @@ struct ThreadArgs
 struct task tasks[MAX_TASK_COUNT];
 int tasks_count, complete_count = 0;
 
-sem_t sem;
+sem_t tasks_handling;
 sem_t print;
-sem_t logger;
+sem_t messages_handling;
+
+sem_t programmers;
+sem_t loggers;
 
 int servSock, servSock2;       /* Socket descriptor for server */
 pthread_t threadID, threadID2; /* Thread ID from pthread_create() */
-
-struct message
-{
-    char *text;
-};
 
 char buffer[BUFFER_SIZE];
 
@@ -49,9 +49,11 @@ void closeAll()
     printf("\n\nFINISH USING SIGINT\n\n");
     printTasksInfo();
 
-    sem_destroy(&sem);    // Уничтожение семафора
-    sem_destroy(&print);  // Уничтожение семафора
-    sem_destroy(&logger); // Уничтожение семафора
+    sem_destroy(&tasks_handling);    // Уничтожение семафора
+    sem_destroy(&print);             // Уничтожение семафора
+    sem_destroy(&messages_handling); // Уничтожение семафора
+    sem_destroy(&programmers);       // Уничтожение семафора
+    sem_destroy(&loggers);           // Уничтожение семафора
 
     close(servSock);
     close(servSock2);
@@ -89,6 +91,8 @@ void initPulls()
 
 void *ThreadMain(void *threadArgs)
 {
+    sem_wait(&programmers);
+
     int clntSock; /* Socket descriptor for client connection */
     int port;
 
@@ -100,7 +104,31 @@ void *ThreadMain(void *threadArgs)
     port = ((struct ThreadArgs *)threadArgs)->port;
     free(threadArgs); /* Deallocate memory for argument */
 
-    HandleTCPClient(clntSock, port);
+    HandleTCPProgrammerClient(clntSock, port);
+
+    sem_post(&programmers);
+
+    return (NULL);
+}
+
+void *ThreadMain2(void *threadArgs)
+{
+    sem_wait(&loggers);
+
+    int clntSock; /* Socket descriptor for client connection */
+    int port;
+
+    /* Guarantees that thread resources are deallocated upon return */
+    pthread_detach(pthread_self());
+
+    /* Extract socket file descriptor from argument */
+    clntSock = ((struct ThreadArgs *)threadArgs)->clntSock;
+    port = ((struct ThreadArgs *)threadArgs)->port;
+    free(threadArgs); /* Deallocate memory for argument */
+
+    HandleTCPLoggerClient(clntSock, port);
+
+    sem_post(&loggers);
 
     return (NULL);
 }
@@ -160,13 +188,12 @@ int AcceptTCPConnection(int servSock)
 void addLog(char *log)
 {
     // critical section, access to messages pull
-    sem_wait(&logger);
+    sem_wait(&messages_handling);
     printf("%s", log);
     if (messages_cnt <= BUFFER_SIZE)
     {
         struct message new_message = {log};
         messages_pull[messages_cnt++] = new_message;
-        free(log);
     }
     else
     {
@@ -174,7 +201,7 @@ void addLog(char *log)
         DieWithError("too many messages in pull");
     }
     // end of critical section
-    sem_wait(&logger);
+    sem_wait(&messages_handling);
 }
 
 ////// END OF LOGGER LOGIC //////
@@ -291,7 +318,7 @@ int handleClientRequest(int clntSocket, struct request *request)
     struct response response = {-1, null_task};
 
     // critical section, access to tasks array
-    sem_wait(&sem);
+    sem_wait(&tasks_handling);
 
     if (complete_count == tasks_count)
     {
@@ -326,7 +353,7 @@ int handleClientRequest(int clntSocket, struct request *request)
     }
 
     // end of critical section
-    sem_post(&sem);
+    sem_post(&tasks_handling);
 
     // Send the response back to the client
     send(clntSocket, &response, sizeof(response), 0);
@@ -352,37 +379,35 @@ void receiveRequest(int sock, struct request *request)
 
 int m_index = 0;
 
-void HandleTCPClient(int clntSocket, int port)
+void HandleTCPProgrammerClient(int clntSocket, int port)
 {
-    if (port == programmers_port)
+    // handle first client
+
+    while (1) // until complete-pull is complete
     {
-        // handle first client
+        struct request request = {-1, -1, -1};
 
-        while (1) // until complete-pull is complete
+        receiveRequest(clntSocket, &request);
+
+        if (handleClientRequest(clntSocket, &request) == FINISH)
         {
-            struct request request = {-1, -1, -1};
-
-            receiveRequest(clntSocket, &request);
-
-            if (handleClientRequest(clntSocket, &request) == FINISH)
-            {
-                break;
-            }
+            break;
         }
     }
-    else if (port == loggers_port)
-    {
-        // handle second client
 
-        bzero(buffer, BUFFER_SIZE);
-        recv(clntSocket, buffer, sizeof(buffer), 0);
-        printf("Client says: %s\n", buffer);
+    close(clntSocket); /* Close client socket */
+}
 
-        bzero(buffer, BUFFER_SIZE);
-        strcpy(buffer, messages_pull[m_index++].text);
-        printf("Server: %s\n", buffer);
-        send(clntSocket, buffer, strlen(buffer), 0);
-    }
+void HandleTCPLoggerClient(int clntSocket, int port)
+{
+    bzero(buffer, BUFFER_SIZE);
+    recv(clntSocket, buffer, sizeof(buffer), 0);
+    printf("Client says: %s\n", buffer);
+
+    bzero(buffer, BUFFER_SIZE);
+    strcpy(buffer, messages_pull[m_index++].text);
+    printf("Server: %s\n", buffer);
+    send(clntSocket, buffer, strlen(buffer), 0);
 
     close(clntSocket); /* Close client socket */
 }
@@ -398,9 +423,11 @@ int main(int argc, char *argv[])
     int echoServPort2 = -1;
     struct ThreadArgs *threadArgs, *threadArgs2; /* Pointer to argument structure for thread */
 
-    sem_init(&sem, 0, 1);    // Инициализация семафора
-    sem_init(&print, 0, 1);  // Инициализация семафора
-    sem_init(&logger, 0, 1); // Инициализация семафора
+    sem_init(&tasks_handling, 0, 1);    // Инициализация семафора
+    sem_init(&print, 0, 1);             // Инициализация семафора
+    sem_init(&messages_handling, 0, 1); // Инициализация семафора
+    sem_init(&programmers, 0, 1);       // Инициализация семафора
+    sem_init(&loggers, 0, 1);           // Инициализация семафора
 
     echoServPort = 7004;
 
@@ -457,7 +484,7 @@ int main(int argc, char *argv[])
             threadArgs2->port = echoServPort2;
 
             /* Create client thread for servSock2 */
-            if (pthread_create(&threadID2, NULL, ThreadMain, (void *)threadArgs2) != 0)
+            if (pthread_create(&threadID2, NULL, ThreadMain2, (void *)threadArgs2) != 0)
                 DieWithError("pthread_create()2 failed");
             printf("with thread %ld\n", (long int)threadID2);
         }
