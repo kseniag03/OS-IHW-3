@@ -1,60 +1,4 @@
-#include <stdio.h>      /* for printf() and fprintf() */
-#include <sys/socket.h> /* for socket(), connect(), send(), and recv() */
-#include <arpa/inet.h>  /* for sockaddr_in and inet_addr() */
-#include <stdlib.h>     /* for atoi() and exit() */
-#include <string.h>     /* for memset() */
-#include <unistd.h>     /* for close() */
-
-void DieWithError(char *errorMessage); /* Error handling function */
-
-enum REQUEST_CODE
-{
-    GET_WORK = 0,
-    SEND_TASK = 1,
-    SEND_CHECK = 2
-};
-
-enum RESPONSE_CODE
-{
-    UB = -1,
-    NEW_TASK = 0,
-    CHECK_TASK = 1,
-    FIX_TASK = 2,
-    FINISH = 3
-};
-
-enum STATUS
-{
-    NEW = -1,
-    EXECUTING = 0,
-    EXECUTED = 1,
-    CHECKING = 2,
-    WRONG = 3,
-    RIGHT = 4
-};
-
-struct task
-{
-    int id;
-    int executor_id;
-    int checker_id;
-
-    int status;
-};
-
-struct request
-{
-    int request_code;
-    int programmer_id;
-
-    struct task task;
-};
-
-struct response
-{
-    int response_code;
-    struct task task;
-};
+#include "common.h"
 
 int programmer_id;
 
@@ -62,7 +6,9 @@ void sendRequest(int sock, struct request *request)
 {
     /* Send the current i to the server */
     if (send(sock, (struct request *)request, sizeof(*request), 0) < 0)
+    {
         DieWithError("send() bad");
+    }
     printf("Programmer #%d has sent his request = %d to server\n", programmer_id, request->request_code);
 }
 
@@ -98,13 +44,19 @@ int main(int argc, char *argv[])
     }
 
     if (argc == 4)
+    {
         echoServPort = atoi(argv[3]); /* Use given port, if any */
+    }
     else
+    {
         echoServPort = 7004; // default
+    }
 
     /* Create a reliable, stream socket using TCP */
     if ((sock = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP)) < 0)
+    {
         DieWithError("socket() failed");
+    }
 
     /* Construct the server address structure */
     memset(&echoServAddr, 0, sizeof(echoServAddr));   /* Zero out structure */
@@ -114,7 +66,9 @@ int main(int argc, char *argv[])
 
     /* Establish the connection to the echo server */
     if (connect(sock, (struct sockaddr *)&echoServAddr, sizeof(echoServAddr)) < 0)
+    {
         DieWithError("connect() failed");
+    }
 
     struct task task = {-1, -1, -1, -1};
     struct request request = {GET_WORK, programmer_id, task};
@@ -150,7 +104,7 @@ int main(int argc, char *argv[])
 
             // imitating check
             int8_t result = rand() % 2;
-            printf("the result of checking task with id = %d is %d", response.task.id, result);
+            printf("the result of checking task with id = %d is %d\n", response.task.id, result);
             response.task.status = result == 0 ? WRONG : RIGHT;
 
             request.task = response.task;
@@ -170,10 +124,4 @@ int main(int argc, char *argv[])
 
     close(sock);
     exit(0);
-}
-
-void DieWithError(char *errorMessage)
-{
-    perror(errorMessage);
-    exit(1);
 }

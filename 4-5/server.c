@@ -1,86 +1,55 @@
-#include <stdio.h>      /* for printf() and fprintf() */
-#include <sys/socket.h> /* for socket(), bind(), and connect() */
-#include <arpa/inet.h>  /* for sockaddr_in and inet_ntoa() */
-#include <stdlib.h>     /* for atoi() and exit() */
-#include <string.h>     /* for memset() */
-#include <unistd.h>     /* for close() */
-#include <pthread.h>    /* for POSIX threads */
-
-#include <semaphore.h>
+#include <pthread.h>   /* for POSIX threads */
+#include <semaphore.h> /* for unnamed "mutexes" */
+#include "common.h"
 
 #define MAX_TASK_COUNT 10
-#define MAX_CLIENT_CONNECTIONS 3 // 4, 1 also for client-retranslator // 100? for several clients-retranslators support
+#define MAX_CLIENT_CONNECTIONS 3
 
-void DieWithError(char *errorMessage);           /* Error handling function */
-void HandleTCPClient(int clntSocket, int count); /* TCP client handling function */
-int CreateTCPServerSocket(unsigned short port);  /* Create TCP server socket */
-int AcceptTCPConnection(int servSock);           /* Accept TCP connection request */
+void HandleTCPClient(int clntSocket);           /* TCP client handling function */
+int CreateTCPServerSocket(unsigned short port); /* Create TCP server socket */
+int AcceptTCPConnection(int servSock);          /* Accept TCP connection request */
 
 void *ThreadMain(void *arg); /* Main program of a thread */
 
-enum REQUEST_CODE
-{
-    GET_WORK = 0,
-    SEND_TASK = 1,
-    SEND_CHECK = 2
-};
-
-enum RESPONSE_CODE
-{
-    UB = -1,
-    NEW_TASK = 0,
-    CHECK_TASK = 1,
-    FIX_TASK = 2,
-    FINISH = 3
-};
-
-enum STATUS
-{
-    NEW = -1,
-    EXECUTING = 0,
-    EXECUTED = 1,
-    CHECKING = 2,
-    WRONG = 3,
-    RIGHT = 4,
-    FIX = 5
-};
+void printTasksInfo(); /* Print status info for logging */
 
 /* Structure of arguments to pass to client thread */
 struct ThreadArgs
 {
-    int clntSock;    /* Socket descriptor for client */
-    int tasks_count; // number of tasks to complete
-};
-
-struct task
-{
-    int id;
-    int executor_id;
-    int checker_id;
-
-    int status;
-};
-
-struct request
-{
-    int request_code;
-    int programmer_id;
-
-    struct task task;
-};
-
-struct response
-{
-    int response_code;
-    struct task task;
+    int clntSock; /* Socket descriptor for client */
 };
 
 struct task tasks[MAX_TASK_COUNT];
-
 int tasks_count, complete_count = 0;
 
 sem_t sem;
 sem_t print;
+
+int servSock;       /* Socket descriptor for server */
+pthread_t threadID; /* Thread ID from pthread_create() */
+
+void closeAll()
+{
+    printf("\n\nFINISH USING SIGINT\n\n");
+    printTasksInfo();
+
+    sem_destroy(&sem);   // Уничтожение семафора
+    sem_destroy(&print); // Уничтожение семафора
+
+    close(servSock);
+}
+
+void handleSigInt(int sig)
+{
+    if (sig != SIGINT)
+    {
+        return;
+    }
+    closeAll();
+    // kill thread
+    pthread_kill(threadID, SIGKILL);
+    exit(EXIT_SUCCESS);
+}
 
 void initPulls()
 {
@@ -95,25 +64,17 @@ void initPulls()
 void *ThreadMain(void *threadArgs)
 {
     int clntSock; /* Socket descriptor for client connection */
-    int count;
 
     /* Guarantees that thread resources are deallocated upon return */
     pthread_detach(pthread_self());
 
     /* Extract socket file descriptor from argument */
     clntSock = ((struct ThreadArgs *)threadArgs)->clntSock;
-    count = ((struct ThreadArgs *)threadArgs)->tasks_count;
     free(threadArgs); /* Deallocate memory for argument */
 
-    HandleTCPClient(clntSock, count);
+    HandleTCPClient(clntSock);
 
     return (NULL);
-}
-
-void DieWithError(char *errorMessage)
-{
-    perror(errorMessage);
-    exit(1);
 }
 
 int CreateTCPServerSocket(unsigned short port)
@@ -123,7 +84,9 @@ int CreateTCPServerSocket(unsigned short port)
 
     /* Create socket for incoming connections */
     if ((sock = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP)) < 0)
+    {
         DieWithError("socket() failed");
+    }
 
     /* Construct local address structure */
     memset(&echoServAddr, 0, sizeof(echoServAddr));   /* Zero out structure */
@@ -133,11 +96,15 @@ int CreateTCPServerSocket(unsigned short port)
 
     /* Bind to the local address */
     if (bind(sock, (struct sockaddr *)&echoServAddr, sizeof(echoServAddr)) < 0)
+    {
         DieWithError("bind() failed");
+    }
 
     /* Mark the socket so it will listen for incoming connections */
     if (listen(sock, MAX_CLIENT_CONNECTIONS) < 0)
+    {
         DieWithError("listen() failed");
+    }
 
     return sock;
 }
@@ -164,7 +131,7 @@ int AcceptTCPConnection(int servSock)
     return clntSock;
 }
 
-//////
+//////  TASK LOGIC  //////
 
 void printTasksInfo()
 {
@@ -178,10 +145,9 @@ void printTasksInfo()
 
 void getWork(struct response *response, int programmer_id)
 {
-
     for (int i = 0; i < tasks_count; ++i)
     {
-        if (tasks[i].status == NEW) // tasks[i].executor_id == -1)
+        if (tasks[i].status == NEW)
         {
             // found task for execution
             printf("programmer #%d has found task with id = %d for executing\n", programmer_id, tasks[i].id);
@@ -222,7 +188,8 @@ void getWork(struct response *response, int programmer_id)
         else
         {
             // ub?
-            printTasksInfo();
+            // one possible case: programmer is trying to check its own executed task
+            // printTasksInfo();
         }
     }
     // no work found
@@ -256,6 +223,7 @@ int handleClientRequest(int clntSocket, struct request *request)
     struct task null_task = {-1, -1, -1, -1};
     struct response response = {-1, null_task};
 
+    // critical section, access to tasks array
     sem_wait(&sem);
 
     if (complete_count == tasks_count)
@@ -288,6 +256,7 @@ int handleClientRequest(int clntSocket, struct request *request)
         }
     }
 
+    // end of critical section
     sem_post(&sem);
 
     // Send the response back to the client
@@ -296,17 +265,19 @@ int handleClientRequest(int clntSocket, struct request *request)
     return response.response_code;
 }
 
-/////////////////////////
+//////  END OF TASK LOGIC  //////
 
 void receiveRequest(int sock, struct request *request)
 {
     /* Receive the current i to the server */
     if (recv(sock, (struct request *)request, sizeof(*request), 0) < 0)
+    {
         DieWithError("recv() bad");
-    // printf("Server has received request = %d from programmer %d\n", request->request_code, request->programmer_id);
+    }
+    printf("Server has received request = %d from programmer %d\n", request->request_code, request->programmer_id);
 }
 
-void HandleTCPClient(int clntSocket, int count)
+void HandleTCPClient(int clntSocket)
 {
     while (1) // until complete-pull is complete
     {
@@ -325,16 +296,16 @@ void HandleTCPClient(int clntSocket, int count)
 
 int main(int argc, char *argv[])
 {
-    int servSock;                  /* Socket descriptor for server */
+    (void)signal(SIGINT, handleSigInt);
+
     int clntSock;                  /* Socket descriptor for client */
-    unsigned short echoServPort;   /* Server port */
-    pthread_t threadID;            /* Thread ID from pthread_create() */
+    unsigned short port;           /* Server port */
     struct ThreadArgs *threadArgs; /* Pointer to argument structure for thread */
 
     sem_init(&sem, 0, 1);   // Инициализация семафора
     sem_init(&print, 0, 1); // Инициализация семафора
 
-    echoServPort = 7004; // atoi(argv[1]); /* First arg:  local port */
+    port = 7004; /* First arg:  local port */
 
     if (argc < 2) /* Test for correct number of arguments */
     {
@@ -343,19 +314,19 @@ int main(int argc, char *argv[])
     }
     else
     {
-        echoServPort = atoi(argv[1]); /* First arg:  local port */
+        port = atoi(argv[1]); /* First arg:  local port */
     }
 
     tasks_count = MAX_TASK_COUNT;
     if (argc > 2)
     {
         tasks_count = atoi(argv[2]);
-        // in order to have tasks_count lower (or equal) than max
-        tasks_count = (tasks_count > MAX_TASK_COUNT) ? MAX_TASK_COUNT : tasks_count;
+        // in order to have tasks_count lower (or equal) than max (and 2 and more)
+        tasks_count = (tasks_count > MAX_TASK_COUNT || tasks_count < 2) ? MAX_TASK_COUNT : tasks_count;
     }
     initPulls();
 
-    servSock = CreateTCPServerSocket(echoServPort);
+    servSock = CreateTCPServerSocket(port);
 
     while (complete_count < tasks_count) /* run forever */
     {
@@ -372,14 +343,4 @@ int main(int argc, char *argv[])
         printf("with thread %ld\n", (long int)threadID);
     }
     /* NOT REACHED */
-
-    printf("reached!!!\n");
-
-    printf("\n\nFINISH FINISH FINISH\n\n");
-    printTasksInfo();
-
-    sem_destroy(&sem);   // Уничтожение семафора
-    sem_destroy(&print); // Уничтожение семафора
-
-    close(servSock);
 }
