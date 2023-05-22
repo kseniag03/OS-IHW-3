@@ -34,7 +34,7 @@ int main(int argc, char *argv[])
 
     if ((argc < 3) || (argc > 4)) /* Test for correct number of arguments */
     {
-        fprintf(stderr, "Usage: %s <programmer id> <Server IP> <Echo Port>\n",
+        fprintf(stderr, "Аргументы: %s <programmer id> [Server IP] [Server Port]\n",
                 argv[0]);
         // exit(1);
     }

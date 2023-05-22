@@ -48,7 +48,7 @@ void handleSigInt(int sig)
     closeAll();
     // kill thread
     pthread_kill(threadID, SIGKILL);
-    exit(EXIT_SUCCESS);
+    exit(0);
 }
 
 void initPulls()
@@ -309,7 +309,7 @@ int main(int argc, char *argv[])
 
     if (argc < 2) /* Test for correct number of arguments */
     {
-        fprintf(stderr, "Usage:  %s <SERVER PORT> [TASK_COUNT]\n", argv[0]);
+        fprintf(stderr, "Аргументы:  %s [SERVER PORT] [TASK_COUNT]\n", argv[0]);
         // exit(1);
     }
     else
