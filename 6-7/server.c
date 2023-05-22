@@ -1,5 +1,6 @@
 #include <pthread.h>   /* for POSIX threads */
 #include <semaphore.h> /* for unnamed "mutexes" */
+#include <signal.h>    /* for handling SIGINT */
 #include "common.h"
 
 #define MAX_TASK_COUNT 10
