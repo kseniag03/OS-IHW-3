@@ -84,7 +84,7 @@ void initPulls()
     // initialize message_pull
     for (int i = 0; i < BUFFER_SIZE; ++i)
     {
-        struct message message = {.text = ""};
+        struct message message = {.text = "NULL"};
         messages_pull[i] = message;
     }
 }
@@ -404,10 +404,14 @@ void HandleTCPLoggerClient(int clntSocket, int port)
     recv(clntSocket, buffer, sizeof(buffer), 0);
     printf("Client says: %s\n", buffer);
 
+    sem_wait(&messages_handling);
+
     bzero(buffer, BUFFER_SIZE);
     strcpy(buffer, messages_pull[m_index++].text);
     printf("Server: %s\n", buffer);
     send(clntSocket, buffer, strlen(buffer), 0);
+
+    sem_post(&messages_handling);
 
     close(clntSocket); /* Close client socket */
 }

@@ -53,6 +53,8 @@ int main(int argc, char *argv[])
         bzero(buffer, BUFFER_SIZE);
         recv(sock, buffer, sizeof(buffer), 0);
         printf("Got from server: %s\n", buffer);
+
+        sleep(5);
     }
 
     close(sock);
