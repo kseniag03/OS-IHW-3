@@ -5,6 +5,8 @@
 #include <string.h>     /* for memset() */
 #include <unistd.h>     /* for close() */
 
+#define BUFFER_SIZE 1024
+
 void DieWithError(char *errorMessage); /* Error handling function */
 
 enum REQUEST_CODE
@@ -55,4 +57,14 @@ struct response
 {
     int response_code;
     struct task task;
+};
+
+struct message
+{
+    char *text;
+};
+
+struct sendMessage
+{
+    struct message pull[BUFFER_SIZE];
 };

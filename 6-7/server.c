@@ -5,7 +5,6 @@
 #define MAX_TASK_COUNT 10
 #define MAX_PROGRAMMERS_CONNECTIONS 3
 #define MAX_LOGGERS_CONNECTIONS 1 // 100? for several clients-retranslators support
-#define BUFFER_SIZE 1024
 
 void HandleTCPClient(int clntSocket, int port);                      /* TCP client handling function */
 int CreateTCPServerSocket(unsigned short port, int max_connections); /* Create TCP server socket */
@@ -27,6 +26,7 @@ int tasks_count, complete_count = 0;
 
 sem_t sem;
 sem_t print;
+sem_t logger;
 
 int servSock, servSock2;       /* Socket descriptor for server */
 pthread_t threadID, threadID2; /* Thread ID from pthread_create() */
@@ -38,6 +38,9 @@ struct message
 
 char buffer[BUFFER_SIZE];
 
+struct message messages_pull[BUFFER_SIZE];
+int messages_cnt = 0;
+
 int programmers_port, loggers_port;
 
 void closeAll()
@@ -45,8 +48,9 @@ void closeAll()
     printf("\n\nFINISH USING SIGINT\n\n");
     printTasksInfo();
 
-    sem_destroy(&sem);   // Уничтожение семафора
-    sem_destroy(&print); // Уничтожение семафора
+    sem_destroy(&sem);    // Уничтожение семафора
+    sem_destroy(&print);  // Уничтожение семафора
+    sem_destroy(&logger); // Уничтожение семафора
 
     close(servSock);
     close(servSock2);
@@ -72,6 +76,13 @@ void initPulls()
     {
         struct task task = {.id = i, .executor_id = -1, .checker_id = -1, .status = -1};
         tasks[i] = task;
+    }
+
+    // initialize message_pull
+    for (int i = 0; i < BUFFER_SIZE; ++i)
+    {
+        struct message message = {.text = ""};
+        messages_pull[i] = message;
     }
 }
 
@@ -147,9 +158,22 @@ int AcceptTCPConnection(int servSock)
 
 void addLog(char *log)
 {
+    // critical section, access to messages pull
+    sem_wait(&logger);
     printf("%s", log);
-    struct message *m = malloc(sizeof(struct message));
-    m->text = log;
+    if (messages_cnt <= BUFFER_SIZE)
+    {
+        struct message new_message = {log};
+        messages_pull[messages_cnt++] = new_message;
+        free(log);
+    }
+    else
+    {
+        free(log);
+        DieWithError("too many messages in pull");
+    }
+    // end of critical section
+    sem_wait(&logger);
 }
 
 ////// END OF LOGGER LOGIC //////
@@ -158,11 +182,15 @@ void addLog(char *log)
 
 void printTasksInfo()
 {
+    // critical section, access to tasks array
     sem_wait(&print);
     for (int j = 0; j < tasks_count; ++j)
     {
-        addLog(sprintf("task with id = %d and status = %d, executed by programmer #%d, checked by programmer %d\n", tasks[j].id, tasks[j].status, tasks[j].executor_id, tasks[j].checker_id));
+        char *log = malloc(sizeof(char) * BUFFER_SIZE);
+        sprintf(log, "task with id = %d and status = %d, executed by programmer #%d, checked by programmer %d\n", tasks[j].id, tasks[j].status, tasks[j].executor_id, tasks[j].checker_id);
+        addLog(log);
     }
+    // end of critical section
     sem_post(&print);
 }
 
@@ -173,7 +201,10 @@ void getWork(struct response *response, int programmer_id)
         if (tasks[i].status == NEW)
         {
             // found task for execution
-            addLog(sprintf("programmer #%d has found task with id = %d for executing\n", programmer_id, tasks[i].id));
+            char *log = malloc(sizeof(char) * BUFFER_SIZE);
+            sprintf(log, "programmer #%d has found task with id = %d for executing\n", programmer_id, tasks[i].id);
+            addLog(log);
+
             response->response_code = NEW_TASK;
             tasks[i].executor_id = programmer_id;
             tasks[i].status = EXECUTING;
@@ -183,7 +214,10 @@ void getWork(struct response *response, int programmer_id)
         else if (tasks[i].status == FIX && tasks[i].executor_id == programmer_id)
         {
             // fix task
-            printf("programmer #%d is fixing task with id = %d\n", programmer_id, tasks[i].id);
+            char *log = malloc(sizeof(char) * BUFFER_SIZE);
+            sprintf(log, "programmer #%d is fixing task with id = %d\n", programmer_id, tasks[i].id);
+            addLog(log);
+
             response->response_code = NEW_TASK;
             tasks[i].status = EXECUTING;
             response->task = tasks[i];
@@ -192,7 +226,10 @@ void getWork(struct response *response, int programmer_id)
         else if (tasks[i].status == EXECUTED && tasks[i].executor_id != programmer_id)
         {
             // found task for check
-            printf("programmer #%d has found task with id = %d for checking\n", programmer_id, tasks[i].id);
+            char *log = malloc(sizeof(char) * BUFFER_SIZE);
+            sprintf(log, "programmer #%d has found task with id = %d for checking\n", programmer_id, tasks[i].id);
+            addLog(log);
+
             response->response_code = CHECK_TASK;
             tasks[i].checker_id = programmer_id;
             tasks[i].status = CHECKING;
@@ -202,7 +239,10 @@ void getWork(struct response *response, int programmer_id)
         else if (tasks[i].executor_id == programmer_id && tasks[i].status == WRONG)
         {
             // found task for fix
-            printf("programmer #%d need to fix his task with id = %d\n", programmer_id, tasks[i].id);
+            char *log = malloc(sizeof(char) * BUFFER_SIZE);
+            sprintf(log, "programmer #%d need to fix his task with id = %d\n", programmer_id, tasks[i].id);
+            addLog(log);
+
             response->response_code = FIX_TASK;
             tasks[i].status = FIX;
             response->task = tasks[i];
@@ -236,7 +276,10 @@ void sendCheckResult(struct task *task)
     if (task->status == RIGHT)
     {
         ++complete_count;
-        printf("\n\n!!!!!!!!\tComplete count = %d\t!!!!!!!!!!\n\n", complete_count);
+
+        char *log = malloc(sizeof(char) * BUFFER_SIZE);
+        sprintf(log, "\n\n!!!!!!!!\tComplete count = %d\t!!!!!!!!!!\n\n", complete_count);
+        addLog(log);
     }
 }
 
@@ -253,7 +296,9 @@ int handleClientRequest(int clntSocket, struct request *request)
     {
         response.response_code = FINISH;
 
-        printf("\n\nFINISH\n\n");
+        char *log = malloc(sizeof(char) * BUFFER_SIZE);
+        sprintf(log, "\n\nFINISH\n\n");
+        addLog(log);
         printTasksInfo();
     }
     else
@@ -297,8 +342,14 @@ void receiveRequest(int sock, struct request *request)
     {
         DieWithError("recv() bad");
     }
-    printf("Server has received request = %d from programmer %d\n", request->request_code, request->programmer_id);
+
+    char *log = malloc(sizeof(char) * BUFFER_SIZE);
+    sprintf(log, "Server has received request = %d from programmer %d\n", request->request_code, request->programmer_id);
+    addLog(log);
+    // printTasksInfo();
 }
+
+int m_index = 0;
 
 void HandleTCPClient(int clntSocket, int port)
 {
@@ -327,7 +378,7 @@ void HandleTCPClient(int clntSocket, int port)
         printf("Client says: %s\n", buffer);
 
         bzero(buffer, BUFFER_SIZE);
-
+        strcpy(buffer, messages_pull[m_index++].text);
         printf("Server: %s\n", buffer);
         send(clntSocket, buffer, strlen(buffer), 0);
     }
@@ -343,14 +394,14 @@ int main(int argc, char *argv[])
     int clntSock;
     int clntSock2 = -1;
     unsigned short echoServPort;
-    int echoServPort2;
+    int echoServPort2 = -1;
     struct ThreadArgs *threadArgs, *threadArgs2; /* Pointer to argument structure for thread */
 
-    sem_init(&sem, 0, 1);   // Инициализация семафора
-    sem_init(&print, 0, 1); // Инициализация семафора
+    sem_init(&sem, 0, 1);    // Инициализация семафора
+    sem_init(&print, 0, 1);  // Инициализация семафора
+    sem_init(&logger, 0, 1); // Инициализация семафора
 
     echoServPort = 7004;
-    echoServPort2 = -1;
 
     if (argc < 2) /* Test for correct number of arguments */
     {

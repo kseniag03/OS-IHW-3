@@ -45,7 +45,6 @@ int main(int argc, char *argv[])
 
     while (1)
     {
-
         bzero(buffer, BUFFER_SIZE);
         strcpy(buffer, "HELLO, THIS IS CLIENT.");
         printf("Client: %s\n", buffer);
@@ -53,16 +52,10 @@ int main(int argc, char *argv[])
 
         bzero(buffer, BUFFER_SIZE);
         recv(sock, buffer, sizeof(buffer), 0);
-        printf("Server says: %s\n", buffer);
+        printf("Got from server: %s\n", buffer);
     }
 
     close(sock);
     printf("Disconnected from the server.\n");
     exit(0);
-}
-
-void DieWithError(char *errorMessage)
-{
-    perror(errorMessage);
-    exit(1);
 }
